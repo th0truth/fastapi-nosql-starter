@@ -31,7 +31,6 @@ dependencies = [
     "prometheus-fastapi-instrumentator>=7.1.0",
     "authlib>=1.6.6",
     "itsdangerous>=2.2.0",
-    "strawberry-graphql[fastapi]>=0.289.8",
 ]
 
 [tool.setuptools]

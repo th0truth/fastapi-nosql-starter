@@ -1,4 +1,4 @@
-__all__ = ["BaseCRUD", "UserCRUD", "ProductCRUD"]
+__all__ = ["BaseCRUD", "ProductCRUD", "UserCRUD"]
 
 from .base_crud import BaseCRUD
 from .product_crud import ProductCRUD
