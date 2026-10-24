@@ -1,53 +1,28 @@
-import json
 import logging
-from datetime import datetime, timezone
-from logging.config import dictConfig
+
+try:
+    from core.config import LOGGER_FORMAT
+except ImportError:
+    try:
+        from config import LOGGER_FORMAT
+    except ImportError:
+        LOGGER_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+_configured = False
 
 
-# Define structure of logging configuration
-class JsonFormatter(logging.Formatter):
-  def format(self, record):
-    log_record = {
-      "timestamp": datetime.now(timezone.utc).isoformat(),
-      "level": record.levelname,
-      "logger": record.name,
-      "module": record.module,
-      "line": record.lineno,
-      "message": record.getMessage(),
-    }
+def setup_logging(level: int = logging.INFO) -> None:
+    global _configured
 
-    # Add exception info if available
-    if record.exc_info:
-      log_record["exception"] = self.formatException(record.exc_info)
+    if _configured:
+        return
 
-    return json.dumps(log_record)
+    logging.basicConfig(level=level, format=LOGGER_FORMAT)
+    _configured = True
 
 
-# Define the logging configuration
-log_config = {
-  "version": 1,
-  "disable_existing_loggers": False,
-  "formatters": {"json": {"()": JsonFormatter}},
-  "handlers": {
-    "console": {
-      "class": "logging.StreamHandler",
-      "level": "DEBUG",
-      "formatter": "json",
-      "stream": "ext://sys.stdout",
-    },
-  },
-  "loggers": {
-    "app": {"handlers": ["console"], "level": "DEBUG", "propagate": False},
-    "pymongo": {"level": "WARNING"},
-    "pymongo.command": {"level": "WARNING"},
-    "pymongo.connection": {"level": "WARNING"},
-    "pymongo.topology": {"level": "WARNING"},
-  },
-  "root": {"handlers": ["console"], "level": "DEBUG"},
-}
+def get_logger(name: str) -> logging.Logger:
+    return logging.getLogger(name)
 
 
-# Apply the configuration
-dictConfig(log_config)
-
-logger = logging.getLogger("app")
+logger = get_logger("app")

@@ -1,3 +1,4 @@
-__all__ = ["oauth", "google_oauth"]
-
 from .google import google_oauth
+
+
+__all__ = ["google_oauth", "oauth"]
