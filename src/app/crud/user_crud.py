@@ -1,98 +1,63 @@
-from typing import List, Optional, Union
+from typing import Optional
+
+from pymongo.asynchronous.database import AsyncDatabase
 
 from core.config import ModelType
-from core.logger import logger
 from core.security.utils import Hash
 
 from .base_crud import BaseCRUD
 
 
 class UserCRUD(BaseCRUD):
-  def __init__(self, db):
-    super().__init__(db)
+    def __init__(self, db: AsyncDatabase, collection: str = "users"):
+        super().__init__(db)
+        self.collection = collection
 
-  async def find(
-    self, *, username: str, exclude: Optional[List] = None
-  ) -> Union[dict, None]:
-    """Finds user profile using username."""
-    try:
-      user = None
+    async def find(self, *, username: str) -> Optional[dict]:
+        return await self.db[self.collection].find_one(
+            {
+                "$or": [
+                    {"username": {"$regex": f"^{username}$", "$options": "i"}},
+                    {"email": {"$regex": f"^{username}$", "$options": "i"}},
+                ]
+            }
+        )
 
-      for collection in await self.db.list_collection_names():
-        if user := await self.db[collection].find_one(
-          {
-            "$or": [
-              {
-                "username": {
-                  "$regex": username,
-                  "$options": "i",
-                }
-              },
-              {"email": {"$regex": username, "$options": "i"}},
-            ]
-          }
-        ):
-          break
+    async def create(self, user: ModelType):
+        user.password = Hash.hash(plain=user.password)
+        await self.db[self.collection].insert_one(user.model_dump())
 
-      if not user:
-        return None
+        return user
 
-      if exclude:
-        for key in exclude:
-          user.pop(key)
+    async def update(self, username: str, update: dict) -> Optional[dict]:
+        user = await self.find(username=username)
 
-      return user
-    except Exception as e:
-      logger.error(
-        {
-          "message": ("[x] An error occured while searching user profile in MongoDB."),
-          "detail": str(e),
-        },
-        exc_info=True,
-      )
+        if not user:
+            return
 
-      return
+        return await self.db[self.collection].find_one_and_update(
+            filter={"_id": user["_id"]}, update={"$set": update}, return_document=True
+        )
 
-  async def create(self, user: ModelType):
-    """Creates a user profile."""
-    user.password = Hash.hash(plain=user.password)
-    await self.db[user.role].insert_one(user.model_dump())
+    async def delete(self, username: str):
+        user = await self.find(username=username)
 
-    return user
+        if not user:
+            return
 
-  async def update(self, username: Union[str, int], update: dict) -> Union[dict, None]:
-    """Updates a user profile."""
-    if not (user := await self.find(username=username)):
-      return
+        result = await self.db[self.collection].delete_one({"_id": user["_id"]})
 
-    return await self.db[user.get("role")].find_one_and_update(
-      filter=user, update={"$set": update}
-    )
+        return result.deleted_count
 
-  async def delete(self, username: Union[str, int]):
-    """Deletes a user profile."""
-    if not (user := await self.find(username=username)):
-      return
+    async def authenticate(self, *, username: str, plain_pwd: str) -> Optional[dict]:
+        user = await self.find(username=username)
 
-    result = await self.db[user.get("role")].delete_one(user)
+        if not user:
+            return
 
-    return result.deleted_count
+        is_valid = Hash.verify(plain_pwd, user.get("password"))
 
-  async def authenticate(
-    self,
-    *,
-    username: Union[str, int],
-    plain_pwd: str,
-    exclude: Optional[List] = None,
-  ) -> Union[dict, None]:
-    """Authenticates a user using credentials."""
-    user = await self.find(username=username)
+        if not is_valid:
+            return
 
-    if not user or not Hash.verify(plain_pwd, user.get("password")):
-      return
-
-    if exclude:
-      for key in exclude:
-        user.pop(key)
-
-    return user
+        return user
