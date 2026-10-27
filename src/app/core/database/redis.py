@@ -5,7 +5,7 @@ import redis.asyncio as aioredis
 from core.config import settings
 from core.logger import get_logger
 
-from core.security.utils import DBConnection
+from core.database import DBConnection
 
 
 logger = get_logger(__name__)

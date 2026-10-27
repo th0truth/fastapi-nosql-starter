@@ -6,7 +6,7 @@ from pymongo.errors import ConfigurationError, OperationFailure
 from core.config import settings
 from core.logger import get_logger
 
-from core.security.utils import DBConnection
+from core.database import DBConnection
 
 
 logger = get_logger(__name__)
@@ -49,6 +49,8 @@ class MongoClient(DBConnection):
                 await cls._client.aclose()
                 logger.info("[+] MongoDB connection closed.")
             except Exception as e:
-                logger.error(f"Error closing MongoDB connection: {e}")
+                logger.error(
+                    f"Error closing MongoDB connection: {e}"
+                )
             finally:
                 cls._client = None
