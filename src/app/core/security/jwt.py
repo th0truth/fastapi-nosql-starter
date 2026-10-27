@@ -67,21 +67,29 @@ class OAuthJWTBearer:
         )
 
     @staticmethod
-    async def add_jti_to_blacklist(redis: RedisClient, *, jti: str, exp: int) -> bool:
+    async def add_jti_to_blacklist(
+        redis: RedisClient, *, jti: str, exp: int
+    ) -> bool:
         now = int(datetime.now(tz=UTC).timestamp())
         ttl = exp - now
 
         if ttl < 0:
             logger.warning(
-                f"Token with jti={jti} is already expired.Skipping blacklist."
+                f"Token with jti={jti} is already expired."
             )
 
             return False
 
-        await redis.setex(f"session:blacklist:jti:{jti}", ttl, "Revoked")
+        await redis.setex(
+            f"session:blacklist:jti:{jti}", ttl, "Revoked"
+        )
 
         return True
 
     @staticmethod
-    async def is_jti_in_blacklist(redis: RedisClient, *, jti: str) -> bool:
-        return await redis.exists(f"session:blacklist:jti:{jti}")
+    async def is_jti_in_blacklist(
+        redis: RedisClient, *, jti: str
+    ) -> bool:
+        return await redis.exists(
+            f"session:blacklist:jti:{jti}"
+        )
