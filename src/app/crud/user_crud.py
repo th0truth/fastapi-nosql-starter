@@ -1,63 +1,76 @@
 from typing import Optional
+import re
 
-from pymongo.asynchronous.database import AsyncDatabase
-
-from core.config import ModelType
-from core.security.utils import Hash
+from core.schemas.user import (
+    UserInDB, UserCreate, UserUpdate
+)
 
 from .base_crud import BaseCRUD
 
 
-class UserCRUD(BaseCRUD):
-    def __init__(self, db: AsyncDatabase, collection: str = "users"):
-        super().__init__(db)
-        self.collection = collection
+class UserCRUD(
+    BaseCRUD[
+        UserInDB, UserCreate, UserUpdate
+    ]
+    ):
+    def __init__(self, db):
+        super().__init__(db, collection_name="users", model=UserInDB)
 
-    async def find(self, *, username: str) -> Optional[dict]:
-        return await self.db[self.collection].find_one(
+    async def get_by_username(self, username: str) -> Optional[UserInDB]:
+        escaped_username = re.escape(username)
+
+        doc = await self.collection.find_one(
+            {
+                "username": {
+                    "$regex": f"^{escaped_username}$", "$options": "i"
+                }
+            }
+        )
+
+        if not doc:
+            return
+
+        return self.model.model_validate(doc)
+
+    async def get_by_email(self, email: str) -> Optional[UserInDB]:
+        escaped_email = re.escape(email)
+
+        doc = await self.collection.find_one(
+                {
+                    "username": {
+                        "$regex": f"^{escaped_email}$", "$options": "i"
+                    }
+                }
+            )
+
+        if not doc:
+            return
+
+        return self.model.model_validate(doc)
+
+    async def get_by_username_or_email(
+        self, indentifier: str
+    ) -> Optional[UserInDB]:
+        escaped_idt = re.escape(indentifier)
+
+        doc = await self.collection.find_one(
             {
                 "$or": [
-                    {"username": {"$regex": f"^{username}$", "$options": "i"}},
-                    {"email": {"$regex": f"^{username}$", "$options": "i"}},
+                    {
+                        "username": {
+                            "$regex": f"^{escaped_idt}$", "$options": "i"
+                        }
+                    },
+                    {  
+                        "email": {
+                            "$regex": f"^{escaped_idt}$", "$options": "i"
+                        }
+                    },
                 ]
             }
         )
 
-    async def create(self, user: ModelType):
-        user.password = Hash.hash(plain=user.password)
-        await self.db[self.collection].insert_one(user.model_dump())
-
-        return user
-
-    async def update(self, username: str, update: dict) -> Optional[dict]:
-        user = await self.find(username=username)
-
-        if not user:
+        if not doc:
             return
 
-        return await self.db[self.collection].find_one_and_update(
-            filter={"_id": user["_id"]}, update={"$set": update}, return_document=True
-        )
-
-    async def delete(self, username: str):
-        user = await self.find(username=username)
-
-        if not user:
-            return
-
-        result = await self.db[self.collection].delete_one({"_id": user["_id"]})
-
-        return result.deleted_count
-
-    async def authenticate(self, *, username: str, plain_pwd: str) -> Optional[dict]:
-        user = await self.find(username=username)
-
-        if not user:
-            return
-
-        is_valid = Hash.verify(plain_pwd, user.get("password"))
-
-        if not is_valid:
-            return
-
-        return user
+        return self.model.model_validate(doc)
