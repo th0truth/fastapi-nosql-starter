@@ -1,3 +1,4 @@
-__all__ = ["api_v1_router", "api_v2_router"]
+from api.v1.api_v1_router import api_v1_router
 
-from api.v2.api_v2_router import api_v2_router
+
+__all__ = ["api_v1_router"]
