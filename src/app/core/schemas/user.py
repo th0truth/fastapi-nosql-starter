@@ -1,9 +1,19 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 
-from .utils import PASSWORDstr
+from constants import PyObjectId, PASSWORDstr
+
+
+class UserInDB(BaseModel):
+    id: Optional[PyObjectId] = Field(default=None, alias="_id")
+    username: str
+    email: Optional[EmailStr] = None
+    password: str
+    role: str = "customer"
+    scopes: list[str] = ["customer"]
+    created_at: Optional[datetime] = None
 
 
 class UserInitial(BaseModel):
@@ -24,6 +34,9 @@ class UserPrivate(UserBase):
     email: Optional[EmailStr] = None
     password: Optional[PASSWORDstr] = None
     scopes: list
+
+class UserCreate(UserInDB):
+    pass
 
 
 class UserUpdate(BaseModel):

@@ -1,9 +1,8 @@
-from typing import Annotated, Optional
+from typing import Optional
 
-from pydantic import BaseModel, BeforeValidator, EmailStr, Field
+from pydantic import BaseModel, EmailStr
 
-PASSWORDstr = Annotated[str, Field(..., min_length=8, max_length=128)]
-PyObjectId = Annotated[str, BeforeValidator(str)]
+from constants import PASSWORDstr
 
 
 class HealthCheck(BaseModel):

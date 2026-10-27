@@ -37,7 +37,7 @@ class UserCRUD(
 
         doc = await self.collection.find_one(
                 {
-                    "username": {
+                    "email": {
                         "$regex": f"^{escaped_email}$", "$options": "i"
                     }
                 }

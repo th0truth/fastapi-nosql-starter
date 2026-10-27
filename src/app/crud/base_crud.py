@@ -25,7 +25,7 @@ class BaseCRUD(
         self,
         db: AsyncDatabase,
         collection_name: str,
-        model: ModelType
+        model: type[ModelType]
     ):
         self.db = db
         self.collection: AsyncCollection = db[collection_name]
@@ -44,7 +44,7 @@ class BaseCRUD(
         result = await self.collection.insert_one(doc)
         doc["_id"] = result.inserted_id
 
-        return await self.model.model_validate(doc)
+        return self.model.model_validate(doc)
 
     async def get_by_id(
         self, id: str, projection: Optional[Dict[str, int]]
