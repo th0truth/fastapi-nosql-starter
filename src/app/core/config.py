@@ -1,10 +1,8 @@
-from typing import Union, Annotated, Any, TypeVar
+from typing import Union, Annotated, Any
 
-from pydantic import AnyUrl, BaseModel, BeforeValidator, computed_field
+
+from pydantic import AnyUrl, BeforeValidator, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
-
-ModelType = TypeVar("TypeModel", bound=BaseModel)
 
 
 def parse_cors(v: Any) -> Union[list[str], str]:
