@@ -41,7 +41,6 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # Add middleware to the app
     app.add_middleware(RateLimitMiddleware)
     app.add_middleware(
         SessionMiddleware,
@@ -53,10 +52,11 @@ def create_app() -> FastAPI:
 
     # Attach limiter to the app
     app.state.limiter = limiter
-    app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+    app.add_exception_handler(
+        RateLimitExceeded, rate_limit_exceeded_handler
+    )
 
     if settings.all_cors_origins:
-        # Add middlewares
         app.add_middleware(
             CORSMiddleware,
             allow_origins=settings.all_cors_origins,
@@ -65,10 +65,8 @@ def create_app() -> FastAPI:
             allow_headers=["*"],
         )
 
-    # Monitor the app using Prometheus
     Instrumentator().instrument(app).expose(app, endpoint="/metrics")
 
-    # Include main router to the app
     app.include_router(api_main_router)
 
     return app
