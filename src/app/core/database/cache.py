@@ -1,8 +1,6 @@
 from typing import Optional, Any
 import json
 
-import redis.asyncio as aioredis
-
 from .redis import RedisClient
 
 
@@ -22,4 +20,4 @@ class RedisCache:
             except json.JSONDecodeError:
                 pass
 
-        return None
+        return 

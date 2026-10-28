@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, Optional
 
 from fastapi import Depends
 from fastapi.requests import Request
@@ -8,8 +8,9 @@ from pymongo.asynchronous.database import AsyncDatabase
 
 from core.database import MongoClient, RedisClient
 from core.services import UserService
+from core.security.jwt import OAuthJWTBearer 
 
-from app.core.database.cache import RedisCache
+from core.database.cache import RedisCache
 
 from crud import UserCRUD
 
@@ -52,6 +53,20 @@ def get_identifier(request: Request) -> str:
     return getattr(
         request.state, "identifier", get_remote_address(request)
     )
+
+
+def get_jwt_payload(request: Request) -> Optional[dict]:
+    """Extract and decode JWT payload from Authorization header"""
+    auth_token = request.headers.get("Authorization")
+
+    if auth_token:
+        access_token = auth_token.split()[1]
+        payload = OAuthJWTBearer.decode(token=access_token)
+
+        if payload:
+            return payload
+
+    return
 
 
 def set_name_from_function(func):

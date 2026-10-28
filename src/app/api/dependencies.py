@@ -1,5 +1,4 @@
-from typing import Annotated, Optional
-from datetime import timedelta
+from typing import Annotated
 import json
 
 from fastapi import HTTPException, Request, status, Depends
@@ -11,14 +10,19 @@ from core.config import settings, REDIS_URI
 from core.logger import get_logger
 
 from core.database import RedisClient, RedisCache
-from core.security.jwt import OAuthJWTBearer
-from core.services import UserService
+from core.security import OAuthJWTBearer
+
+from crud import UserCRUD
+
+from constants import CACHE_EXPIRE_SECONDS
+
 
 from api.helpers import (
     get_redis_client, get_redis_cache,
-    get_user_service, get_identifier,
+    get_user_crud, get_identifier,
     set_name_from_function
 )
+
 
 
 logger = get_logger(__name__)
@@ -42,7 +46,7 @@ async def get_current_user(
     token: Annotated[str, Depends(oauth2_scheme)],
     redis_client: Annotated[RedisClient, Depends(get_redis_client)],
     redis_cache: Annotated[RedisCache, Depends(get_redis_cache)],
-    user_service: Annotated[UserService, Depends(get_user_service)],
+    user_crud: Annotated[UserCRUD, Depends(get_user_crud)],
     security_scopes: SecurityScopes,
 ) -> dict:
     payload = OAuthJWTBearer.decode(token=token)
@@ -61,55 +65,38 @@ async def get_current_user(
             detail="Token has been revoked.",
         )
 
-    redis_key = f"cache:user:{username}:profile"
-    user = None
+    redis_key = f"user:{username}" 
 
-    
+    user = await redis_cache.get(redis_key)
 
-    # # If not in cache or cache failed, check MongoDB
-    # if not user:
-    #     if not (
-    #         user := await UserCRUD(users_db).find(
-    #             username=username, exclude=["_id", "password"]
-    #         )
-    #     ):
-    #         raise HTTPException(
-    #             status_code=status.HTTP_401_UNAUTHORIZED,
-    #             detail="Couldn't validate user credentials.",
-    #             headers={"WWW-Authenticate": "Bearer"},
-    #         )
+    if not user:
+        user = await user_crud.get_by_username(username)
 
-    #     await redis.setex(
-    #         f"cache:user:{username}:profile",
-    #         timedelta(minutes=settings.CACHE_EXPIRE_MINUTES).seconds,
-    #         json.dumps(user, default=str),
-    #     )
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Couldn't validate user credentials.",
+                headers={"WWW-Authenticate": "Bearer"}
+            )
 
-    # # Check a user's privileges
-    # if security_scopes.scopes:
-    #     user_scopes = user.get("scopes", [])
+        await redis_cache.redis_client.setex(
+            redis_key, CACHE_EXPIRE_SECONDS,
+            json.dumps(user, default=str)
+        )
 
-    #     if not any(scope in security_scopes.scopes for scope in user_scopes):
-    #         raise HTTPException(
-    #             status_code=status.HTTP_404_NOT_FOUND,
-    #             detail="Not enough permissions.",
-    #         )
+    if security_scopes.scopes:
+        user_scopes = user.scopes or []
 
-    # return user
+        if not any(
+            scope in security_scopes.scopes
+            for scope in user_scopes
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Not enough permissions.",
+            )
 
-
-def get_jwt_payload(request: Request) -> Optional[dict]:
-    """Extract and decode JWT payload from Authorization header"""
-    auth_token = request.headers.get("Authorization")
-
-    if auth_token:
-        access_token = auth_token.split()[1]
-        payload = OAuthJWTBearer.decode(token=access_token)
-
-        if payload:
-            return payload
-
-    return
+    return user
 
 
 async def limit_dependency(request: Request) -> None:
