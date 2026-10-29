@@ -1,8 +1,10 @@
 from typing import Optional
 
-from core.security import Hash
 from core.database import RedisCache
+from core.security import Hash
+
 from core.schemas.user import UserInDB, UserCreate
+from core.schemas.utils import UpdatePassword
 
 from crud import UserCRUD
 
@@ -40,3 +42,28 @@ class UserService:
         return await self.user_crud.create(
             user_in
         )
+
+    async def update_password(
+        self,
+        username: str,
+        password_obj: UpdatePassword 
+    ) -> bool:
+        user = await self.authenticate(
+            username, password_obj.current_password
+        )
+
+        if not user:
+            return False
+
+        hashed = Hash.hash(password_obj.new_password)
+
+        result = await self.user_crud.update(
+            str(user.id), {"password": hashed}
+        )
+
+        if result and self.redis_cache:
+            await self.redis_cache.delete(f"user:{username}")
+
+        return bool(result)
+
+        
