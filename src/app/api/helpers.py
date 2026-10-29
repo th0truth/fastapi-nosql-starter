@@ -10,9 +10,16 @@ from core.database import MongoClient, RedisClient
 from core.services import UserService
 from core.security.jwt import OAuthJWTBearer 
 
-from core.database.cache import RedisCache
+from core.database import RedisCache, RedisSession
 
 from crud import UserCRUD
+
+
+async def _get_users_db() -> AsyncDatabase:
+    if not MongoClient._client:
+        await MongoClient.connect()
+
+    return MongoClient._client.get_database("users")
 
 
 async def get_redis_client() -> RedisClient:
@@ -28,11 +35,10 @@ async def get_redis_cache(
     return RedisCache(redis_client)
 
 
-async def _get_users_db() -> AsyncDatabase:
-    if not MongoClient._client:
-        await MongoClient.connect()
-
-    return MongoClient._client.get_database("users")
+async def get_redis_session(
+    redis_client: Annotated[RedisClient, Depends(get_redis_client)]
+) -> RedisSession:
+    return RedisSession(redis_client)
 
 
 async def get_user_crud(
@@ -43,9 +49,9 @@ async def get_user_crud(
 
 async def get_user_service(
     user_crud: Annotated[UserCRUD, Depends(get_user_crud)],
-    redis_client: Annotated[RedisClient, Depends(get_redis_client)]
+    redis_cache: Annotated[RedisCache, Depends(get_redis_cache)]
 ) -> UserService:
-    return UserService(user_crud, redis_client)
+    return UserService(user_crud, redis_cache)
 
 
 def get_identifier(request: Request) -> str:
