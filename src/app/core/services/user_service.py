@@ -66,4 +66,27 @@ class UserService:
 
         return bool(result)
 
+    async def reset_password(
+        self,
+        identifier: str,
+        new_password: str
+    ) -> bool:
+        user = await self.user_crud.get_by_username_or_email(
+            identifier
+        )
+
+        if not user:
+            return False
+
+        hashed = Hash.hash(new_password)
+
+        result = await self.user_crud.update(
+            str(user.id), {"password": hashed}
+        )
+
+        if result and self.redis_cache:
+            await self.redis_cache.delete(f"user:{user.username}")
+
+        return bool(result)
+
         

@@ -35,7 +35,9 @@ router = APIRouter(tags=["Me"])
     response_model=UserResponse,
     status_code=status.HTTP_200_OK,
     response_model_exclude_none=True,
-    dependencies=[Depends(limit_dependency)],
+    dependencies=[
+        Depends(limit_dependency)
+    ]
 )
 async def get_active_user(
     user: Annotated[UserInDB, Depends(get_current_user)]
@@ -46,7 +48,9 @@ async def get_active_user(
 @router.patch(
     "/",
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(limit_dependency)],
+    dependencies=[
+        Depends(limit_dependency)
+    ]
 )
 async def update_user(
     user_update: Annotated[UserUpdate, Body()],
@@ -74,7 +78,9 @@ async def update_user(
 @router.patch(
     "/password",
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(limit_dependency)],
+    dependencies=[
+        Depends(limit_dependency)
+    ]
 )
 async def update_password(
     update_body: Annotated[UpdatePassword, Body()],
