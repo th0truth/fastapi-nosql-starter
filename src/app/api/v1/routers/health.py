@@ -1,6 +1,8 @@
+from fastapi import APIRouter, status
+
 from api.dependencies import limiter
 from core.schemas.utils import HealthCheck
-from fastapi import APIRouter, status
+
 
 router = APIRouter(tags=["Health"])
 

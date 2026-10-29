@@ -1,20 +1,29 @@
-import json
 from datetime import timedelta
 from typing import Annotated
+import json
+
+from fastapi import APIRouter, HTTPException, status, Depends, Header
+from fastapi.security import OAuth2PasswordRequestForm
 
 from api.dependencies import (
     get_current_user,
-    get_mongo_client,
-    get_redis_client,
-    limit_dependency,
+    limit_dependency
 )
-from core.config import settings
-from core.database import MongoClient, RedisClient
+
+from api.helpers import (
+    get_redis_cache,
+    get_user_service
+)
+
+from core.database import RedisCache
+from core.security import OAuthJWTBearer
+from core.services import UserService
+
 from core.schemas.token import TokenBase, TokenPayload
-from core.security.jwt import OAuthJWTBearer
+
+
 from crud import UserCRUD
-from fastapi import APIRouter, Depends, Header, HTTPException, status
-from fastapi.security import OAuth2PasswordRequestForm
+
 
 router = APIRouter(tags=["Authentication"])
 
@@ -27,70 +36,63 @@ router = APIRouter(tags=["Authentication"])
 )
 async def login(
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
-    mongo: Annotated[MongoClient, Depends(get_mongo_client)],
-    redis: Annotated[RedisClient, Depends(get_redis_client)],
+    redis_cache: Annotated[RedisCache, Depends(get_redis_cache)],
+    user_service: Annotated[UserService, Depends(get_user_service)],
 ):
     """
     Log in using user credentials.a
     """
-    # Authenticate user credentials from the MongoDB database
-    users_db = mongo.get_database("users")
+    user = await user_service.authenticate(
+        form_data.username, form_data.password
+    )
 
-    if not (
-        user := await UserCRUD(users_db).authenticate(
-            username=form_data.username,
-            plain_pwd=form_data.password,
-            exclude=["_id", "password"],
-        )
-    ):
+    if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Couldn't validate credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Get data from the payload
-    username, role, scopes = (
-        user.get("username"),
-        user.get("role"),
-        user.get("scopes"),
-    )
 
-    # Encode user payload for get an JWT
+    # Encode user payload to get an JWT
     token = OAuthJWTBearer.encode(
-        payload={"sub": username, "role": role, "scopes": scopes}
+        {
+            "sub": user.username,
+            "role": user.role,
+            "scopes": user.scopes
+        }
     )
 
     # Store user profile in Redis cache
-    await redis.setex(
-        f"cache:user:{username}:profile",
-        timedelta(minutes=settings.CACHE_EXPIRE_MINUTES).seconds,
-        json.dumps(user, default=str),
-    )
+    await redis_cache.set(f"user:{user.username}", user)
 
-    return TokenPayload(access_token=token.get("jwt"), role=role)
+    return TokenPayload(
+        access_token=token.get("jwt"), role=user.role
+    )
 
 
 @router.post(
     "/token",
     status_code=status.HTTP_200_OK,
     response_model=TokenPayload,
-    dependencies=[Depends(get_current_user), Depends(limit_dependency)],
+    dependencies=[Depends(get_current_user), Depends(limit_dependency)]
 )
 async def auth_token(
     token: Annotated[TokenBase, Header(alias="Authorization")],
-    redis: Annotated[RedisClient, Depends(get_redis_client)],
+    redis_cache: Annotated[RedisCache, Depends(get_redis_cache)]
 ):
     """
     Log in using an access token.
     """
     # Decode a user's JWT
-    if not (payload := OAuthJWTBearer.decode(token.access_token)):
+    payload = OAuthJWTBearer.decode(token.access_token)
+
+    if not payload:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid token."
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid token."
         )
 
-    # Get variables from the payload
     role, jti, exp = (
         payload.get("role"),
         payload.get("jti"),
@@ -148,3 +150,31 @@ async def logout(
         )
 
     return {"message": "Successfully logged out."}
+
+
+@router.patch(
+    "/password/recovery",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(limit_dependency)],
+)
+async def password_recovery(
+    update_body: Annotated[PasswordRecovery, Body()],
+    mongo: Annotated[MongoClient, Depends(get_mongo_client)],
+):
+    """
+    Password recovery for the current user.
+    """
+    # Update the user data
+    users_db = mongo.get_database("users")
+
+    if not (
+        await UserCRUD(users_db).update(
+            username=update_body.email,
+            update={"password": Hash.hash(plain=update_body.new_password)},
+        )
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found."
+        )
+
+    return {"message": "The user's password has been recovered."}
