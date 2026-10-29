@@ -1,5 +1,3 @@
-import json
-from datetime import timedelta
 from typing import Annotated
 
 from fastapi import (
@@ -12,18 +10,14 @@ from authlib.integrations.base_client.errors import (
     MismatchingStateError, OAuthError
 )
 
-from redis.asyncio import Redis
-
 from api.dependencies import limit_dependency
-from api.helpers import get_redis_client, get_user_crud
+from api.helpers import get_redis_cache, get_user_crud
 
 from core.config import settings
+from core.database import RedisCache
 from core.logger import get_logger
-
 from core.security import OAuthJWTBearer 
 from core.services import google_oauth
-
-
 from crud import UserCRUD
 
 
@@ -36,11 +30,14 @@ router = APIRouter(tags=["Authentication"])
 @router.get(
     "/google",
     operation_id="AuthGoogle",
-    dependencies=[Depends(limit_dependency)]
+    dependencies=[
+        Depends(limit_dependency)
+    ]
 )
 async def login_google(request: Request):
     """
-    Redirects the user to Google's authorization page to sign in with Google.
+    Redirects the user to Google's authorization page
+    to sign in with Google.
     """
     redirect_uri = str(request.url_for("auth_google"))
 
@@ -53,17 +50,19 @@ async def login_google(request: Request):
     "/google/callback",
     status_code=status.HTTP_307_TEMPORARY_REDIRECT,
     operation_id="AuthGoogleCallback",
-    dependencies=[Depends(limit_dependency)],
+    dependencies=[
+        Depends(limit_dependency)
+    ]
 )
 async def auth_google(
-    redis: Annotated[Redis, Depends(get_redis_client)],
+    redis_cache: Annotated[RedisCache, Depends(get_redis_cache)],
     user_crud: Annotated[UserCRUD, Depends(get_user_crud)],
-    request: Request,
+    request: Request
 ):
     """
-    Handles the redirect callback from Google after user authentication/consent.
+    Handles the redirect callback from Google
+    after user authentication/consent.
     """
-    
     try:
         token: dict = await google_oauth.google.authorize_access_token(request)
     except MismatchingStateError as e:
@@ -74,13 +73,13 @@ async def auth_google(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
-                "Authentication failed due to security check (state mismatch)."
+                "Authentication failed due to security check."
                 " Please try logging in again."
             )
         )
     except OAuthError as e:
         logger.warning(
-           f"Unexpected Authlib error during token exchange: {e}",
+            f"Unexpected Authlib error during token exchange: {e}",
             exc_info=True
         )
 
@@ -91,7 +90,7 @@ async def auth_google(
 
     user_info = token.get("userinfo")
 
-    if not user_info:
+    if not user_info or "email" not in user_info:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=(
@@ -100,7 +99,7 @@ async def auth_google(
             ),
         )
 
-    user = user_crud.get_by_email(user_info["email"])
+    user = await user_crud.get_by_email(user_info["email"])
 
     if not user:
         raise HTTPException(
@@ -109,41 +108,35 @@ async def auth_google(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Get data from the payload
-    edbo_id, role, scopes = (
-        user.get("edbo_id"),
-        user.get("role"),
-        user.get("scopes")
+    jwt_token = OAuthJWTBearer.encode(
+        payload={
+            "sub": user.username,
+            "role": user.role,
+            "scopes": user.scopes,
+        }
     )
 
-    # Encode user payload for get an JWT
-    token = OAuthJWTBearer.encode(
-        payload={"sub": str(edbo_id), "role": role, "scopes": scopes}
-    )
+    await redis_cache.set(f"user:{user.username}", user)
 
-    # Store user profile in Redis cache
-    await redis.setex(
-        f"cache:user:{edbo_id}:profile",
-        timedelta(minutes=settings.CACHE_EXPIRE_MINUTES).seconds,
-        json.dumps(user, default=str),
-    )
+    redirect_url = settings.GOOGLE_FRONTEND_REDIRECT or settings.FRONTEND_HOST
+    response = RedirectResponse(url=redirect_url)
 
-    response = RedirectResponse(url=settings.GOOGLE_FRONTEND_REDIRECT)
+    is_secure = redirect_url.startswith("https")
 
     response.set_cookie(
         key="access_token",
-        value=token["jwt"],
-        httponly=False,
-        secure=False,
+        value=jwt_token["jwt"],
+        httponly=True,
+        secure=is_secure,
         samesite="lax",
     )
     
     response.set_cookie(
         key="user_role",
-        value=role,
+        value=user.role,
         httponly=False,
-        secure=False,
-        samesite="lax"
+        secure=is_secure,
+        samesite="lax",
     )
 
     return response

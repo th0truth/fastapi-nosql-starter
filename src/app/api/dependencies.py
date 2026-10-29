@@ -54,7 +54,7 @@ async def get_current_user(
 
     username, jti = payload.get("sub"), payload.get("jti")
 
-    if await redis_session.is_jti_in_blacklist(jti=jti):
+    if await redis_session.is_jti_in_blacklist(jti):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token has been revoked.",

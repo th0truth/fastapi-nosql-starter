@@ -15,11 +15,16 @@ from core.database import RedisCache, RedisSession
 from crud import UserCRUD
 
 
-async def _get_users_db() -> AsyncDatabase:
+async def get_mongo_client() -> MongoClient:
     if not MongoClient._client:
         await MongoClient.connect()
 
-    return MongoClient._client.get_database("users")
+    return MongoClient._client
+
+
+async def _get_users_db() -> AsyncDatabase:
+    client = await get_mongo_client()
+    return client.get_database("users")
 
 
 async def get_redis_client() -> RedisClient:
