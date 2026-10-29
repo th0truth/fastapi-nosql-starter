@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from typing import Optional
 import uuid
 import jwt
 
@@ -37,7 +38,7 @@ class OAuthJWTBearer:
         }
 
     @staticmethod
-    def decode(token: str) -> dict | None:
+    def decode(token: str) -> Optional[dict]:
         """Decodes a JWT, returning the payload."""
         try:
             return jwt.decode(
@@ -46,7 +47,7 @@ class OAuthJWTBearer:
                 algorithms=settings.JWT_ALGORITHM,
             )
         except (jwt.DecodeError, jwt.ExpiredSignatureError) as e:
-            logger.exception("Unable to decode JWT: %s", e)
+            logger.exception(f"Unable to decode JWT: {e}")
 
             return
 
