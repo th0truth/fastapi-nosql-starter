@@ -3,7 +3,7 @@ from slowapi.util import get_remote_address
 
 from core.config import settings
 
-from api.dependencies import get_jwt_payload
+from api.helpers import get_jwt_payload
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):

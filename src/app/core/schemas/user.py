@@ -1,42 +1,22 @@
-from datetime import datetime
-from typing import Optional
+from typing import Optional, List
+from datetime import datetime, UTC
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import (
+    BaseModel, EmailStr,
+    ConfigDict, Field
+)
 
 from constants import PyObjectId, PASSWORDstr
 
 
-class UserInDB(BaseModel):
-    id: Optional[PyObjectId] = Field(default=None, alias="_id")
-    username: str
-    email: Optional[EmailStr] = None
-    password: str
-    role: str = "customer"
-    scopes: list[str] = ["customer"]
-    created_at: Optional[datetime] = None
-
-
-class UserInitial(BaseModel):
+class UserBase(BaseModel):
+    username: str = Field(..., min_length=3, max_length=64)
+    email: EmailStr
     first_name: str
     middle_name: str
     last_name: str
-
-
-class UserBase(UserInitial):
-    username: str
-    email: EmailStr
     role: str
-    created_at: datetime
-
-
-class UserPrivate(UserBase):
-    account_date: datetime
-    email: Optional[EmailStr] = None
-    password: Optional[PASSWORDstr] = None
-    scopes: list
-
-class UserCreate(UserInDB):
-    pass
+    scopes: List[str] = Field(default_factory=lambda: ["customer"])
 
 
 class UserUpdate(BaseModel):
@@ -44,4 +24,29 @@ class UserUpdate(BaseModel):
     middle_name: Optional[str] = None
     last_name: Optional[str] = None
     role: Optional[str] = None
-    scopes: Optional[list] = None
+    scopes: Optional[List[str]] = None
+
+
+class UserInDB(UserBase):
+    model_config = ConfigDict(
+        populate_by_name=True,
+        from_attributes=True
+    )
+    
+    id: Optional[PyObjectId] = Field(default=None, alias="_id")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    password: str
+    
+
+class UserResponse(UserBase):
+    model_config = ConfigDict(
+        populate_by_name=True,
+        from_attributes=True
+    )
+
+    id: Optional[PyObjectId] = Field(default=None, alias="_id")
+    created_at: datetime
+
+
+class UserCreate(UserBase):
+    password: PASSWORDstr

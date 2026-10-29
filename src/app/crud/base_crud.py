@@ -40,14 +40,17 @@ class BaseCRUD(
             return
 
     async def create(self, obj_in: CreateSchemaType):
-        doc = obj_in.model_dump(by_alias=True)        
-        result = await self.collection.insert_one(doc)
-        doc["_id"] = result.inserted_id
+        doc = obj_in.model_dump(by_alias=True)
+
+        if not doc.get("_id"):
+            doc.pop("_id", None)
+            
+        await self.collection.insert_one(doc)
 
         return self.model.model_validate(doc)
 
     async def get_by_id(
-        self, id: str, projection: Optional[Dict[str, int]]
+        self, id: str, projection: Optional[Dict[str, int]] = None
     ) -> Optional[ModelType]:
         oid = self.to_obj_id(id)
 

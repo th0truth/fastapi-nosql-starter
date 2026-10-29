@@ -1,8 +1,7 @@
 from typing import Optional
 
-from redis.asyncio import Redis
-
 from core.security import Hash
+from core.database import RedisCache
 from core.schemas.user import UserInDB, UserCreate
 
 from crud import UserCRUD
@@ -10,10 +9,10 @@ from crud import UserCRUD
 
 class UserService:
     def __init__(
-        self, user_crud: UserCRUD, redis_client: Optional[Redis] = None
+        self, user_crud: UserCRUD, redis_cache: Optional[RedisCache] = None
     ):
         self.user_crud = user_crud
-        self.redis_client = redis_client
+        self.redis_cache = redis_cache
 
     async def authenticate(
         self, indentifier: str, plain_pwd: str

@@ -85,16 +85,17 @@ class Settings(BaseSettings):
     CACHE_EXPIRE_MINUTES: int = 60
 
     RATE_LIMIT_ANONYMOUS: str = "100/minute"
-    RATE_LIMIT_SELLER: str = "500/minute"
-    RATE_LIMIT_CUSTOMER: str = "200/minute"
+    RATE_LIMIT_USER: str = "50/minute"
 
     @computed_field
     @property
     def RATE_LIMITS(self) -> dict[str, str]:
         return {
             "anonymous": self.RATE_LIMIT_ANONYMOUS,
-            "sellers": self.RATE_LIMIT_SELLER,
-            "customers": self.RATE_LIMIT_ANONYMOUS,
+            "user": self.RATE_LIMIT_USER,
+            "customer": self.RATE_LIMIT_USER,
+            "seller": self.RATE_LIMIT_USER,
+            "admin": self.RATE_LIMIT_USER,
         }
 
     GOOGLE_CLIENT_ID: str | None = None

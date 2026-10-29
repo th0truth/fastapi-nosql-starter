@@ -49,9 +49,9 @@ class UserCRUD(
         return self.model.model_validate(doc)
 
     async def get_by_username_or_email(
-        self, indentifier: str
+        self, identifier: str
     ) -> Optional[UserInDB]:
-        escaped_idt = re.escape(indentifier)
+        escaped_idt = re.escape(identifier)
 
         doc = await self.collection.find_one(
             {

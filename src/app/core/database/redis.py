@@ -64,7 +64,7 @@ class RedisClient(DBConnection):
             finally:
                 cls._client = None
 
-    def __getattr__(self, name) -> aioredis.Redis:
+    def __getattr__(self, name: str) -> aioredis.Redis:
         """Delegate attribute access to the underlying Redis client."""
         if not self._client:
             raise RuntimeError(

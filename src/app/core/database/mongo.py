@@ -54,3 +54,21 @@ class MongoClient(DBConnection):
                 )
             finally:
                 cls._client = None
+    
+    def __getitem__(self, name: str) -> AsyncMongoClient:
+        if not self._client:
+            raise RuntimeError(
+                "Mongo client not connected."
+            )
+
+        return self._client[name]
+
+    def __getattr__(self, name: str):
+        if not self._client:
+            raise RuntimeError(
+                "Mongo client not connected."
+            )
+
+        return getattr(self._client, name)
+        
+
