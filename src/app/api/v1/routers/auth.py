@@ -1,20 +1,30 @@
-import json
-from datetime import timedelta
 from typing import Annotated
+
+from fastapi import (
+    APIRouter, HTTPException, status,
+    Depends, Body
+)
+from fastapi.security import OAuth2PasswordRequestForm
 
 from api.dependencies import (
     get_current_user,
-    get_mongo_client,
-    get_redis_client,
     limit_dependency,
+    oauth2_scheme
 )
-from core.config import settings
-from core.database import MongoClient, RedisClient
-from core.schemas.token import TokenBase, TokenPayload
-from core.security.jwt import OAuthJWTBearer
-from crud import UserCRUD
-from fastapi import APIRouter, Depends, Header, HTTPException, status
-from fastapi.security import OAuth2PasswordRequestForm
+
+from api.helpers import (
+    get_redis_cache,
+    get_user_service,
+    get_redis_session
+)
+
+from core.database import RedisCache, RedisSession
+from core.security import OAuthJWTBearer
+from core.services import UserService
+
+from core.schemas.token import TokenPayload
+from core.schemas.utils import PasswordRecovery
+
 
 router = APIRouter(tags=["Authentication"])
 
@@ -23,128 +33,159 @@ router = APIRouter(tags=["Authentication"])
     "/login",
     status_code=status.HTTP_200_OK,
     response_model=TokenPayload,
-    dependencies=[Depends(limit_dependency)],
+    dependencies=[
+        Depends(limit_dependency)
+    ]
 )
 async def login(
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
-    mongo: Annotated[MongoClient, Depends(get_mongo_client)],
-    redis: Annotated[RedisClient, Depends(get_redis_client)],
+    redis_cache: Annotated[RedisCache, Depends(get_redis_cache)],
+    user_service: Annotated[UserService, Depends(get_user_service)],
 ):
     """
     Log in using user credentials.a
     """
-    # Authenticate user credentials from the MongoDB database
-    users_db = mongo.get_database("users")
+    user = await user_service.authenticate(
+        form_data.username, form_data.password
+    )
 
-    if not (
-        user := await UserCRUD(users_db).authenticate(
-            username=form_data.username,
-            plain_pwd=form_data.password,
-            exclude=["_id", "password"],
-        )
-    ):
+    if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Couldn't validate credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Get data from the payload
-    username, role, scopes = (
-        user.get("username"),
-        user.get("role"),
-        user.get("scopes"),
-    )
 
-    # Encode user payload for get an JWT
     token = OAuthJWTBearer.encode(
-        payload={"sub": username, "role": role, "scopes": scopes}
+        {
+            "sub": user.username,
+            "role": user.role,
+            "scopes": user.scopes
+        }
     )
 
-    # Store user profile in Redis cache
-    await redis.setex(
-        f"cache:user:{username}:profile",
-        timedelta(minutes=settings.CACHE_EXPIRE_MINUTES).seconds,
-        json.dumps(user, default=str),
-    )
+    await redis_cache.set(f"user:{user.username}", user)
 
-    return TokenPayload(access_token=token.get("jwt"), role=role)
+    return TokenPayload(
+        access_token=token.get("jwt"), role=user.role
+    )
 
 
 @router.post(
     "/token",
     status_code=status.HTTP_200_OK,
     response_model=TokenPayload,
-    dependencies=[Depends(get_current_user), Depends(limit_dependency)],
+    dependencies=[
+        Depends(get_current_user),
+        Depends(limit_dependency)
+    ]
 )
 async def auth_token(
-    token: Annotated[TokenBase, Header(alias="Authorization")],
-    redis: Annotated[RedisClient, Depends(get_redis_client)],
+    token: Annotated[str, Depends(oauth2_scheme)],
+    redis_session: Annotated[RedisSession, Depends(get_redis_session)]
 ):
     """
     Log in using an access token.
     """
-    # Decode a user's JWT
-    if not (payload := OAuthJWTBearer.decode(token.access_token)):
+    payload = OAuthJWTBearer.decode(token)
+
+    if not payload:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid token."
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token.",
+            headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Get variables from the payload
     role, jti, exp = (
         payload.get("role"),
         payload.get("jti"),
         payload.get("exp"),
     )
 
-    # Check if jti is revoked
-    if await OAuthJWTBearer.is_jti_in_blacklist(redis, jti=jti):
+    if await redis_session.is_jti_in_blacklist(jti):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token has been revoked.",
         )
 
-    # Add the access token to the blacklist
-    if not await OAuthJWTBearer.add_jti_to_blacklist(redis, jti=jti, exp=exp):
+    if not await redis_session.add_jti_to_blacklist(jti, exp):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Failed to add the token to the blacklist.",
         )
-
-    # Refresh token
+    
     refresh_token = await OAuthJWTBearer.refresh(payload)
 
-    return TokenPayload(access_token=refresh_token, role=role)
+    return TokenPayload(
+        access_token=refresh_token, role=role
+    )
 
 
 @router.post(
     "/logout",
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(get_current_user), Depends(limit_dependency)],
+    dependencies=[
+        Depends(get_current_user),
+        Depends(limit_dependency)
+    ]
 )
 async def logout(
-    token: Annotated[TokenBase, Header()],
-    redis: Annotated[RedisClient, Depends(get_redis_client)],
+    token: Annotated[str, Depends(oauth2_scheme)],
+    redis_session: Annotated[RedisSession, Depends(get_redis_session)],
 ):
     """
     Log out from user account.
     """
-    # Decode a user's JWT
-    payload = OAuthJWTBearer.decode(token=token.access_token)
+    payload = OAuthJWTBearer.decode(token)
+
+    if not payload:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     jti, exp = payload.get("jti"), payload.get("exp")
 
-    # Check if jti is revoked
-    if await OAuthJWTBearer.is_jti_in_blacklist(redis, jti=jti):
+    if await redis_session.is_jti_in_blacklist(jti):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token has been revoked.",
         )
 
-    # Add the access token to the blacklist
-    if not await OAuthJWTBearer.add_jti_to_blacklist(redis, jti=jti, exp=exp):
+    if not await redis_session.add_jti_to_blacklist(jti, exp):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="An error occured while adding JWT to blacklist.",
         )
 
     return {"message": "Successfully logged out."}
+
+
+@router.patch(
+    "/recovery",
+    status_code=status.HTTP_200_OK,
+    dependencies=[
+        Depends(limit_dependency)
+    ]
+)
+async def password_recovery(
+    update_body: Annotated[PasswordRecovery, Body()],
+    user_service: Annotated[UserService, Depends(get_user_service)]
+):
+    """
+    Password recovery for the current user.
+    """
+    
+    result = await user_service.reset_password(
+        update_body.email, update_body.new_password
+    )
+
+    if not result:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found."
+        )
+
+    return {"message": "The user's password has been recovered."}

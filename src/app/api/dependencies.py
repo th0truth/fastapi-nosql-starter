@@ -1,5 +1,4 @@
 from typing import Annotated
-import json
 
 from fastapi import HTTPException, Request, status, Depends
 from fastapi.security import OAuth2PasswordBearer, SecurityScopes
@@ -9,20 +8,16 @@ from slowapi import Limiter
 from core.config import settings, REDIS_URI
 from core.logger import get_logger
 
-from core.database import RedisClient, RedisCache
+from core.schemas.user import UserInDB
+from core.database import RedisCache, RedisSession
 from core.security import OAuthJWTBearer
 
-from crud import UserCRUD
-
-from constants import CACHE_EXPIRE_SECONDS
-
-
 from api.helpers import (
-    get_redis_client, get_redis_cache,
-    get_user_crud, get_identifier,
-    set_name_from_function
+    get_redis_cache, get_redis_session, get_user_crud,
+    get_identifier, set_name_from_function
 )
 
+from crud import UserCRUD
 
 
 logger = get_logger(__name__)
@@ -44,11 +39,11 @@ limiter = Limiter(
 
 async def get_current_user(
     token: Annotated[str, Depends(oauth2_scheme)],
-    redis_client: Annotated[RedisClient, Depends(get_redis_client)],
     redis_cache: Annotated[RedisCache, Depends(get_redis_cache)],
+    redis_session: Annotated[RedisSession, Depends(get_redis_session)],
     user_crud: Annotated[UserCRUD, Depends(get_user_crud)],
-    security_scopes: SecurityScopes,
-) -> dict:
+    security_scopes: SecurityScopes
+) -> UserInDB:
     payload = OAuthJWTBearer.decode(token=token)
 
     if not payload:
@@ -59,7 +54,7 @@ async def get_current_user(
 
     username, jti = payload.get("sub"), payload.get("jti")
 
-    if await OAuthJWTBearer.is_jti_in_blacklist(redis_client, jti=jti):
+    if await redis_session.is_jti_in_blacklist(jti):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token has been revoked.",
@@ -69,7 +64,9 @@ async def get_current_user(
 
     user = await redis_cache.get(redis_key)
 
-    if not user:
+    if user:
+        user = UserInDB.model_validate(user)
+    else:
         user = await user_crud.get_by_username(username)
 
         if not user:
@@ -79,17 +76,14 @@ async def get_current_user(
                 headers={"WWW-Authenticate": "Bearer"}
             )
 
-        await redis_cache.redis_client.setex(
-            redis_key, CACHE_EXPIRE_SECONDS,
-            json.dumps(user, default=str)
+        await redis_cache.set(
+            redis_key, user
         )
 
     if security_scopes.scopes:
-        user_scopes = user.scopes or []
-
         if not any(
             scope in security_scopes.scopes
-            for scope in user_scopes
+            for scope in user.scopes
         ):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

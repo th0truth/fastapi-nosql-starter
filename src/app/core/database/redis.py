@@ -5,7 +5,7 @@ import redis.asyncio as aioredis
 from core.config import settings
 from core.logger import get_logger
 
-from core.database import DBConnection
+from .base import DBConnection
 
 
 logger = get_logger(__name__)
@@ -32,7 +32,7 @@ class RedisClient(DBConnection):
                 username=settings.REDIS_USERNAME,
                 password=settings.REDIS_PASSWORD,
                 decode_responses=True,
-                db=settings.REDIS_DB,
+                db=settings.REDIS_DB
             )
             alive = await cls._client.ping()
 
