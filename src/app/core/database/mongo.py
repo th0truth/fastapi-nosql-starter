@@ -6,7 +6,7 @@ from pymongo.errors import ConfigurationError, OperationFailure
 from core.config import settings
 from core.logger import get_logger
 
-from core.database import DBConnection
+from .base import DBConnection
 
 
 logger = get_logger(__name__)
@@ -32,7 +32,7 @@ class MongoClient(DBConnection):
                 minPoolSize=settings.MONGO_MIN_POOL_SIZE,
                 connectTimeoutMS=settings.MONGO_CONNECT_TIMEOUT_MS,
                 serverSelectionTimeoutMS=settings.MONGO_SERVER_SELECTION_TIMEOUT_MS,
-                retryWrites=settings.MONGO_RETRY_WRITES,
+                retryWrites=settings.MONGO_RETRY_WRITES
             )
             await cls._client.admin.command("ping")
             logger.info("[+] Successfully connected to MongoDB.")

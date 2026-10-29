@@ -1,43 +1,33 @@
 from typing import Optional, Any
 import json
+import time
 
-from .redis import RedisClient
-
-from pydantic import BaseModel
-
-from constants import CACHE_EXPIRE_SECONDS
+from core.database import RedisInstance, RedisClient
 
 
-class RedisCache:
-    def __init__(self, redis_client: RedisClient, prefix: str = "cache"):
-        self.redis = redis_client
-        self.prefix = prefix
-
-    def _fmt(self, key: str) -> str:
-        return f"{self.prefix}:{key}"
+class RedisCache(RedisInstance):
+    def __init__(
+        self, redis_client: RedisClient, prefix: str = "cache"
+    ):
+        super().__init__(redis_client, prefix)
+        self.open_until = 0
+        self.failures = 0
+        self.max_failures = 3
 
     async def get(self, key: str) -> Optional[Any]:
-        data = await self.redis.get(self._fmt(key))
+        if time.time() < self.open_until:
+            return
 
-        if data:
-            try:
+        try:
+            data = await self.redis.get(self._fmt(key))
+
+            if data:
                 return json.loads(data)
-            except json.JSONDecodeError:
-                pass
+
+        except Exception:
+            self.failures += 1
+
+            if self.failures >= self.max_failures:
+                self.open_until = time.time() + 60
 
         return 
-
-    async def set(
-        self, key: str, value: Any, ttl: int = CACHE_EXPIRE_SECONDS
-    ) -> bool:
-        if isinstance(value, BaseModel):
-            payload = value.model_dump_json()
-        elif isinstance(value, (dict, list)):
-            payload = json.dumps(value, default=str)
-        else:
-            payload = str(value)
-
-        return await self.redis.setex(self._fmt(key), ttl, payload)
-
-    async def delete(self, key: str) -> int:
-        return await self.redis.delete(self._fmt(key))
