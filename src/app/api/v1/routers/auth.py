@@ -1,28 +1,29 @@
-from datetime import timedelta
 from typing import Annotated
-import json
 
-from fastapi import APIRouter, HTTPException, status, Depends, Header
+from fastapi import (
+    APIRouter, HTTPException, status,
+    Depends, Body
+)
 from fastapi.security import OAuth2PasswordRequestForm
 
 from api.dependencies import (
     get_current_user,
-    limit_dependency
+    limit_dependency,
+    oauth2_scheme
 )
 
 from api.helpers import (
     get_redis_cache,
-    get_user_service
+    get_user_service,
+    get_redis_session
 )
 
-from core.database import RedisCache
+from core.database import RedisCache, RedisSession
 from core.security import OAuthJWTBearer
 from core.services import UserService
 
-from core.schemas.token import TokenBase, TokenPayload
-
-
-from crud import UserCRUD
+from core.schemas.token import TokenPayload
+from core.schemas.utils import PasswordRecovery
 
 
 router = APIRouter(tags=["Authentication"])
@@ -32,7 +33,9 @@ router = APIRouter(tags=["Authentication"])
     "/login",
     status_code=status.HTTP_200_OK,
     response_model=TokenPayload,
-    dependencies=[Depends(limit_dependency)],
+    dependencies=[
+        Depends(limit_dependency)
+    ]
 )
 async def login(
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
@@ -54,7 +57,6 @@ async def login(
         )
 
 
-    # Encode user payload to get an JWT
     token = OAuthJWTBearer.encode(
         {
             "sub": user.username,
@@ -63,7 +65,6 @@ async def login(
         }
     )
 
-    # Store user profile in Redis cache
     await redis_cache.set(f"user:{user.username}", user)
 
     return TokenPayload(
@@ -75,22 +76,25 @@ async def login(
     "/token",
     status_code=status.HTTP_200_OK,
     response_model=TokenPayload,
-    dependencies=[Depends(get_current_user), Depends(limit_dependency)]
+    dependencies=[
+        Depends(get_current_user),
+        Depends(limit_dependency)
+    ]
 )
 async def auth_token(
-    token: Annotated[TokenBase, Header(alias="Authorization")],
-    redis_cache: Annotated[RedisCache, Depends(get_redis_cache)]
+    token: Annotated[str, Depends(oauth2_scheme)],
+    redis_session: Annotated[RedisSession, Depends(get_redis_session)]
 ):
     """
     Log in using an access token.
     """
-    # Decode a user's JWT
-    payload = OAuthJWTBearer.decode(token.access_token)
+    payload = OAuthJWTBearer.decode(token)
 
     if not payload:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid token."
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token.",
+            headers={"WWW-Authenticate": "Bearer"},
         )
 
     role, jti, exp = (
@@ -99,51 +103,58 @@ async def auth_token(
         payload.get("exp"),
     )
 
-    # Check if jti is revoked
-    if await OAuthJWTBearer.is_jti_in_blacklist(redis, jti=jti):
+    if await redis_session.is_jti_in_blacklist(jti):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token has been revoked.",
         )
 
-    # Add the access token to the blacklist
-    if not await OAuthJWTBearer.add_jti_to_blacklist(redis, jti=jti, exp=exp):
+    if not await redis_session.add_jti_to_blacklist(jti, exp):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Failed to add the token to the blacklist.",
         )
-
-    # Refresh token
+    
     refresh_token = await OAuthJWTBearer.refresh(payload)
 
-    return TokenPayload(access_token=refresh_token, role=role)
+    return TokenPayload(
+        access_token=refresh_token, role=role
+    )
 
 
 @router.post(
     "/logout",
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(get_current_user), Depends(limit_dependency)],
+    dependencies=[
+        Depends(get_current_user),
+        Depends(limit_dependency)
+    ]
 )
 async def logout(
-    token: Annotated[TokenBase, Header()],
-    redis: Annotated[RedisClient, Depends(get_redis_client)],
+    token: Annotated[str, Depends(oauth2_scheme)],
+    redis_session: Annotated[RedisSession, Depends(get_redis_session)],
 ):
     """
     Log out from user account.
     """
-    # Decode a user's JWT
-    payload = OAuthJWTBearer.decode(token=token.access_token)
+    payload = OAuthJWTBearer.decode(token)
+
+    if not payload:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     jti, exp = payload.get("jti"), payload.get("exp")
 
-    # Check if jti is revoked
-    if await OAuthJWTBearer.is_jti_in_blacklist(redis, jti=jti):
+    if await redis_session.is_jti_in_blacklist(jti):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token has been revoked.",
         )
 
-    # Add the access token to the blacklist
-    if not await OAuthJWTBearer.add_jti_to_blacklist(redis, jti=jti, exp=exp):
+    if not await redis_session.add_jti_to_blacklist(jti, exp):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="An error occured while adding JWT to blacklist.",
@@ -153,28 +164,28 @@ async def logout(
 
 
 @router.patch(
-    "/password/recovery",
+    "/recovery",
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(limit_dependency)],
+    dependencies=[
+        Depends(limit_dependency)
+    ]
 )
 async def password_recovery(
     update_body: Annotated[PasswordRecovery, Body()],
-    mongo: Annotated[MongoClient, Depends(get_mongo_client)],
+    user_service: Annotated[UserService, Depends(get_user_service)]
 ):
     """
     Password recovery for the current user.
     """
-    # Update the user data
-    users_db = mongo.get_database("users")
+    
+    result = await user_service.reset_password(
+        update_body.email, update_body.new_password
+    )
 
-    if not (
-        await UserCRUD(users_db).update(
-            username=update_body.email,
-            update={"password": Hash.hash(plain=update_body.new_password)},
-        )
-    ):
+    if not result:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="User not found."
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found."
         )
 
     return {"message": "The user's password has been recovered."}
