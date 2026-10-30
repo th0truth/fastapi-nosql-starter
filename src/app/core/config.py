@@ -1,5 +1,7 @@
-from typing import Union, Annotated, Any
-
+from typing import (
+    Any, List, Dict,
+    Union, Annotated
+)
 
 from pydantic import AnyUrl, BeforeValidator, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -20,10 +22,12 @@ def parse_cors(v: Any) -> Union[list[str], str]:
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env", env_ignore_empty=True, extra="ignore"
+        env_file=".env",
+        env_ignore_empty=True,
+        extra="ignore"
     )
 
-    NAME: str = "FastAPI-NoSQL-Template"
+    NAME: str = "FastAPI-NoSQL-Starter"
     DESCRIPTION: str = ""
     SUMMARY: str = ""
     VERSION: str = "0.0.1"
@@ -31,12 +35,12 @@ class Settings(BaseSettings):
     FRONTEND_HOST: str = "http://localhost:8000"
 
     BACKEND_CORS_ORIGINS: Annotated[
-        list[AnyUrl] | str, BeforeValidator(parse_cors)
+        Union[list[AnyUrl], str], BeforeValidator(parse_cors)
     ] = []
 
     @computed_field
     @property
-    def all_cors_origins(self) -> list[str]:
+    def all_cors_origins(self) -> List[str]:
         return [
             str(origin).rstrip("/")
             for origin in self.BACKEND_CORS_ORIGINS
@@ -50,6 +54,7 @@ class Settings(BaseSettings):
     MONGO_USERNAME: str = "root"
     MONGO_PASSWORD: str = "root"
     MONGO_DATABASE: str = "nosql"
+    MONGO_AUTH_SOURCE: str = "admin"
     MONGO_MAX_POOL_SIZE: int = 100
     MONGO_MIN_POOL_SIZE: int = 10
     MONGO_CONNECT_TIMEOUT_MS: int = 10000
@@ -59,10 +64,15 @@ class Settings(BaseSettings):
     @computed_field
     @property
     def MONGO_URI(self) -> str:
+        auth_source = (
+            f"?authSource={self.MONGO_AUTH_SOURCE}"
+            if self.MONGO_AUTH_SOURCE else ""
+        )
+
         if ".mongodb.net" in self.MONGO_HOSTNAME:
             return (
                 f"mongodb+srv://{self.MONGO_USERNAME}:{self.MONGO_PASSWORD}"
-                f"@{self.MONGO_HOSTNAME}/{self.MONGO_DATABASE}"
+                f"@{self.MONGO_HOSTNAME}/{self.MONGO_DATABASE}{auth_source}"
             )
         else:
             auth = (
@@ -73,7 +83,7 @@ class Settings(BaseSettings):
 
             return (
                 f"mongodb://{auth}{self.MONGO_HOSTNAME}:"
-                f"{self.MONGO_PORT}/{self.MONGO_DATABASE}"
+                f"{self.MONGO_PORT}/{self.MONGO_DATABASE}{auth_source}"
             )
 
     REDIS_HOST: str = "localhost"
@@ -89,7 +99,7 @@ class Settings(BaseSettings):
 
     @computed_field
     @property
-    def RATE_LIMITS(self) -> dict[str, str]:
+    def RATE_LIMITS(self) -> Dict[str, str]:
         return {
             "anonymous": self.RATE_LIMIT_ANONYMOUS,
             "user": self.RATE_LIMIT_USER,
