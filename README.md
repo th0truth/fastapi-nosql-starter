@@ -7,6 +7,7 @@ A RESTful API, asynchronous FastAPI template with MongoDB, Redis, and OAuth 2.0.
 - **Async MongoDB & Redis**: Direct async driver ([pymongo](https://pymongo.readthedocs.io/en/stable/)), connection pooling, and Redis for session / cache storage.
 - **Security**: RS256 JWT with Redis blacklisting / revocation, Argon2 password hashing, and Google OAuth2 via [AuthLib](https://docs.authlib.org/en/stable/oauth2/client/web/fastapi.html#fastapi-integration)
 - **Rate limiting**: Built-in Redis rate limiting powered by [SlowAPI](https://github.com/laurents/slowapi)
+- **Observability**: Prometheus metrics and configured Grafana dashboards. 
 
 ### Tech Stack
 
@@ -15,7 +16,7 @@ A RESTful API, asynchronous FastAPI template with MongoDB, Redis, and OAuth 2.0.
 | Framework | FastAPI + Pydantic v2 |
 | Databases | MongoDB & Redis |
 | Auth & Crypto | PyJWT (RS256), Argon2, Authlib |
-| Infra | Docker Compose, Nginx, Prometheus |
+| Infrastructure | Docker Compose, Nginx, Prometheus, Grafana|
 | Tooling | UV, Ruff, Pytest |
 
 ### Requirements
@@ -39,11 +40,9 @@ openssl genrsa -out private_key.pem 2048
 openssl rsa -in private_key.pem -pubout -out public_key.pem
 
 # run with Docker
-
 docker compose up -d --build
 
-# or
-
+# or with dedicated scripts
 bash scripts/run.sh
 ```
 
@@ -56,6 +55,14 @@ uv sync
 # run server
 uv run uvicorn src.app.main:create_app --reload
 ```
+
+## Monitoring & Dashboards
+
+- **Grafana**: http://localhost:3001
+- **Prometheus**: http://localhost:9090
+- **API Metrics**: http://localhost/metrics
+
+![dashboard](docs/assets/grafana-dashboard.png)
 
 ## License
 
