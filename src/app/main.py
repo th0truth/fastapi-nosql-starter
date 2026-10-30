@@ -2,16 +2,20 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from slowapi.errors import RateLimitExceeded
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
+
+from slowapi.errors import RateLimitExceeded
+
 from prometheus_fastapi_instrumentator import Instrumentator
 
 from core.config import settings
-from core.database import MongoClient, RedisClient
-from core.errors import rate_limit_exceeded_handler
 from core.logger import setup_logging
+
+from core.database import MongoClient, RedisClient
 from core.middleware import RateLimitMiddleware
+
+from core.errors import rate_limit_exceeded_handler
 
 from api.api import api_main_router
 from api.dependencies import limiter
@@ -65,7 +69,7 @@ def create_app() -> FastAPI:
             allow_headers=["*"],
         )
 
-    Instrumentator().instrument(app).expose(app, endpoint="/metrics")
+    Instrumentator().instrument(app).expose(app)
 
     app.include_router(api_main_router)
 
